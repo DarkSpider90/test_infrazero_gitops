@@ -1,25 +1,23 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: k3s-kubelet-prep
+  name: test-project-for-infrazero
   namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "-20"
 spec:
   project: cluster-prod
   source:
-    repoURL: https://github.com/your-org/your-repo
+    repoURL: https://github.com/DarkSpider90/test_infrazero_gitops
     targetRevision: main
-    path: platform/k3s-kubelet-prep
-    directory:
-      recurse: false
+    path: charts/app
+    helm:
+      valueFiles:
+        - ../../config/apps/test-project-for-infrazero.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: kube-system
+    namespace: default
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - SkipDryRunOnMissingResource=true

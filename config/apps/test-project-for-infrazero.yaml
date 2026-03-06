@@ -1,0 +1,120 @@
+apiVersion: infrazero.app/v1alpha1
+kind: AppConfig
+metadata:
+  name: test-project-for-infrazero
+spec:
+  schemaVersion: 1
+  bootstrap:
+    repoURL: https://github.com/DarkSpider90/test_infrazero_gitops
+    env: dev
+    targetRevision: main
+    argoNamespace: argocd
+  global:
+    name: test-project-for-infrazero
+    namespace: default
+    baseDomain: torrf.site
+    ingressClassName: ""
+    tls:
+      enabled: true
+      clusterIssuer: ""
+      secretName: ""
+    labels: {}
+    annotations: {}
+    imagePullSecrets:
+      - ghcr-pull
+    serviceAccount:
+      create: false
+      name: ""
+      annotations: {}
+    resourcePresets: {}
+    networkPolicy:
+      enabled: false
+      ingress: []
+      egress: []
+  workloads:
+    - name: test-project-for-infrazero-db-test
+      type: Deployment
+      secretsFolder: test
+      workingDirectory: /app
+      csi:
+        enabled: true
+        driver: secrets-store.csi.k8s.io
+        secretProviderClass: infisical-test
+        readOnly: true
+        mountPath: /mnt/secrets
+        volumeAttributes: {}
+      image:
+        repository: ghcr.io/darkspider90/test_project_for_infrazero
+        tag: latest
+      replicas: 2
+      role: app
+      timeoutProfile: standard
+      upstreams: []
+      runtimeConfig:
+        mode: image_baked
+        files: []
+      ports:
+        - name: http
+          containerPort: 3000
+          servicePort: 80
+          protocol: TCP
+      service:
+        enabled: true
+        type: ClusterIP
+        annotations:
+          infrazero.app/request-timeout-seconds: "60"
+          infrazero.app/connect-timeout-seconds: "30"
+          infrazero.app/proxy-read-timeout-seconds: "60"
+          infrazero.app/proxy-send-timeout-seconds: "60"
+          infrazero.app/php-max-execution-time-seconds: "60"
+          infrazero.app/php-fpm-request-terminate-timeout-seconds: "60"
+          infrazero.app/nginx-fastcgi-read-timeout-seconds: "60"
+          infrazero.app/nginx-client-max-body-size-mb: "1"
+      ingress:
+        enabled: true
+        annotations:
+          infrazero.app/request-timeout-seconds: "60"
+          infrazero.app/connect-timeout-seconds: "30"
+          infrazero.app/proxy-read-timeout-seconds: "60"
+          infrazero.app/proxy-send-timeout-seconds: "60"
+          infrazero.app/php-max-execution-time-seconds: "60"
+          infrazero.app/php-fpm-request-terminate-timeout-seconds: "60"
+          infrazero.app/nginx-fastcgi-read-timeout-seconds: "60"
+          infrazero.app/nginx-client-max-body-size-mb: "1"
+          nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+          nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+          nginx.ingress.kubernetes.io/proxy-body-size: 1m
+        tls:
+          enabled: true
+          secretName: test-project-for-infrazero-db-test-tls
+        hosts:
+          - host: test.torrf.site
+            paths:
+              - path: /
+                pathType: Prefix
+                servicePort: 80
+      probes:
+        readiness:
+          httpGet:
+            path: /
+            scheme: HTTP
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        liveness:
+          httpGet:
+            path: /
+            scheme: HTTP
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      env:
+        - name: PHP_MAX_EXECUTION_TIME
+          value: "60"
+        - name: PHP_FPM_REQUEST_TERMINATE_TIMEOUT
+          value: "60"
+      resources:
+        limits:
+          memory: 512Mi
+          cpu: 500m
