@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cluster-test
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  description: Cluster resources for test
+  sourceRepos:
+  - https://github.com/your-org/your-repo
+  - https://charts.jetstack.io
+  - https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+  - https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts
+  - https://grafana.github.io/helm-charts
+  destinations:
+  - namespace: "*"
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: "*"
+    kind: "*"
+  namespaceResourceWhitelist:
+  - group: "*"
+    kind: "*"

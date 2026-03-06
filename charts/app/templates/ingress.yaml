@@ -1,0 +1,88 @@
+{{- range $workload := .Values.spec.workloads }}
+{{- if and (eq $workload.type "Deployment") $workload.ingress $workload.ingress.enabled $workload.service $workload.service.enabled $workload.ports }}
+{{- $global := default (dict) $.Values.spec.global -}}
+{{- $globalTls := default (dict) $global.tls -}}
+{{- $defaultPort := 80 -}}
+{{- if $workload.ports }}
+  {{- $first := index $workload.ports 0 -}}
+  {{- if $first.servicePort }}
+    {{- $defaultPort = $first.servicePort -}}
+  {{- else }}
+    {{- $defaultPort = $first.containerPort -}}
+  {{- end }}
+{{- end }}
+{{- $tlsEnabled := $globalTls.enabled -}}
+{{- if and $workload.ingress.tls (hasKey $workload.ingress.tls "enabled") }}
+  {{- $tlsEnabled = $workload.ingress.tls.enabled -}}
+{{- end }}
+{{- $tlsSecret := include "app.tlsSecretName" (list $ $workload) -}}
+{{- $hosts := $workload.ingress.hosts -}}
+{{- $ingressAnnotations := default (dict) $workload.ingress.annotations -}}
+{{- if not $hosts }}
+  {{- $hosts = list (dict "host" "" "paths" (list (dict "path" "/" "pathType" "Prefix" "servicePort" $defaultPort))) -}}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "app.workloadName" (list $ $workload) }}
+  namespace: {{ default "default" $global.namespace }}
+  labels:
+    {{- include "app.commonLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $workload.name }}
+    {{- with $global.labels }}
+{{ toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- if and $tlsEnabled $globalTls.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ $globalTls.clusterIssuer }}
+    {{- if not (hasKey $ingressAnnotations "acme.cert-manager.io/http01-edit-in-place") }}
+    acme.cert-manager.io/http01-edit-in-place: "true"
+    {{- end }}
+    {{- end }}
+    {{- with $ingressAnnotations }}
+{{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- $className := default $global.ingressClassName $workload.ingress.className }}
+  {{- if $className }}
+  ingressClassName: {{ $className }}
+  {{- end }}
+  rules:
+  {{- range $hostEntry := $hosts }}
+  {{- $host := $hostEntry.host }}
+  {{- if not $host }}
+    {{- $host = printf "%s.%s" $workload.name $global.baseDomain -}}
+  {{- end }}
+  {{- $paths := $hostEntry.paths }}
+  {{- if not $paths }}
+    {{- $paths = list (dict "path" "/" "pathType" "Prefix" "servicePort" $defaultPort) -}}
+  {{- end }}
+  - host: {{ $host }}
+    http:
+      paths:
+      {{- range $path := $paths }}
+      - path: {{ default "/" $path.path }}
+        pathType: {{ default "Prefix" $path.pathType }}
+        backend:
+          service:
+            name: {{ include "app.workloadName" (list $ $workload) }}
+            port:
+              number: {{ default $defaultPort $path.servicePort }}
+      {{- end }}
+  {{- end }}
+  {{- if $tlsEnabled }}
+  tls:
+  - hosts:
+    {{- range $hostEntry := $hosts }}
+    {{- $host := $hostEntry.host }}
+    {{- if not $host }}
+      {{- $host = printf "%s.%s" $workload.name $global.baseDomain -}}
+    {{- end }}
+    - {{ $host }}
+    {{- end }}
+    secretName: {{ $tlsSecret }}
+  {{- end }}
+{{- end }}
+{{- end }}
+

@@ -1,0 +1,274 @@
+{{- range $workload := .Values.spec.workloads }}
+{{- if eq $workload.type "Deployment" }}
+{{- $csiMountPath := default "/mnt/secrets" $workload.csi.mountPath -}}
+{{- $dotenvEnabled := $workload.csi.enabled -}}
+{{- $workingDirectory := default "/app" $workload.workingDirectory -}}
+{{- $dotenvMountPath := printf "%s/.env" (trimSuffix "/" $workingDirectory) -}}
+{{- $runtimeConfig := default (dict) $workload.runtimeConfig -}}
+{{- $runtimeMode := default "image_baked" $runtimeConfig.mode -}}
+{{- $runtimeFiles := default (list) $runtimeConfig.files -}}
+{{- $runtimeConfigEnabled := and (eq $runtimeMode "ui_managed_configmap") (gt (len $runtimeFiles) 0) -}}
+{{- $replicas := default 1 $workload.replicas -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.workloadName" (list $ $workload) }}
+  namespace: {{ $.Values.spec.global.namespace }}
+  labels:
+    {{- include "app.commonLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $workload.name }}
+    {{- with $.Values.spec.global.labels }}
+{{ toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $.Values.spec.global.annotations }}
+  annotations:
+{{ toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" (list $ $workload) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app.selectorLabels" (list $ $workload) | nindent 8 }}
+        {{- with $.Values.spec.global.labels }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $workload.podLabels }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $workload.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "app.imagePullSecrets" $ | nindent 6 }}
+      {{- $saName := include "app.serviceAccountName" (list $ $workload) }}
+      {{- if $saName }}
+      serviceAccountName: {{ $saName }}
+      {{- end }}
+      {{- if $workload.nodeSelector }}
+      nodeSelector:
+{{ toYaml $workload.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if $workload.tolerations }}
+      tolerations:
+{{ toYaml $workload.tolerations | nindent 8 }}
+      {{- end }}
+      {{- $selectorLabels := dict
+            "app.kubernetes.io/name" (include "app.name" $)
+            "app.kubernetes.io/instance" $.Release.Name
+            "app.kubernetes.io/component" $workload.name
+      -}}
+      {{- $affinity := deepCopy (default (dict) $workload.affinity) -}}
+      {{- if gt (int $replicas) 1 }}
+      {{- $requiredNodeTerm := dict
+            "topologyKey" "kubernetes.io/hostname"
+            "labelSelector" (dict "matchLabels" $selectorLabels)
+      -}}
+      {{- $podAntiAffinity := deepCopy (default (dict) (index $affinity "podAntiAffinity")) -}}
+      {{- $requiredTerms := concat (default (list) (index $podAntiAffinity "requiredDuringSchedulingIgnoredDuringExecution")) (list $requiredNodeTerm) -}}
+      {{- $_ := set $podAntiAffinity "requiredDuringSchedulingIgnoredDuringExecution" $requiredTerms -}}
+      {{- $_ := set $affinity "podAntiAffinity" $podAntiAffinity -}}
+      {{- end }}
+      {{- if gt (len $affinity) 0 }}
+      affinity:
+{{ toYaml $affinity | nindent 8 }}
+      {{- end }}
+      {{- if gt (int $replicas) 1 }}
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            {{- include "app.selectorLabels" (list $ $workload) | nindent 12 }}
+      {{- end }}
+      {{- if $dotenvEnabled }}
+      initContainers:
+      - name: dotenv-writer
+        image: alpine:3.20
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -ec
+        - |
+          set -eu
+          umask 077
+          SECRETS_DIR={{ $csiMountPath | quote }}
+          OUT_FILE="/work/.env"
+          : > "$OUT_FILE"
+          if [ ! -d "$SECRETS_DIR" ]; then
+            echo "Secrets directory not found: $SECRETS_DIR" >&2
+            exit 1
+          fi
+          # Emit KEY="value" lines; multiline values are escaped as \n.
+          # CSI mounts expose keys as symlinks under /mnt/secrets.
+          # Iterate directory entries directly so this works across BusyBox/GNU tools.
+          for file in "$SECRETS_DIR"/*; do
+            [ -e "$file" ] || continue
+            [ -f "$file" ] || continue
+            key="$(basename "$file")"
+            escaped="$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e ':a;N;$!ba;s/\n/\\n/g' "$file")"
+            printf '%s="%s"\n' "$key" "$escaped" >> "$OUT_FILE"
+          done
+          # Ensure non-root runtime users (for example www-data) can read the file.
+          chmod 0444 "$OUT_FILE"
+        volumeMounts:
+        - name: {{ include "app.csiVolumeName" (list $ $workload) }}
+          mountPath: {{ $csiMountPath | quote }}
+          readOnly: true
+        - name: {{ include "app.dotenvVolumeName" (list $ $workload) }}
+          mountPath: /work
+      {{- end }}
+      containers:
+      - name: {{ $workload.name }}
+        image: "{{ $workload.image.repository }}:{{ $workload.image.tag }}"
+        imagePullPolicy: {{ default "IfNotPresent" $workload.image.pullPolicy }}
+        {{- $command := include "app.renderCommand" (list $workload) }}
+        {{- if $command }}
+{{ $command | nindent 8 }}
+        {{- end }}
+        {{- if $workload.args }}
+        args:
+{{ toYaml $workload.args | nindent 10 }}
+        {{- end }}
+        {{- if $workload.ports }}
+        ports:
+        {{- range $port := $workload.ports }}
+        - name: {{ default (printf "port-%d" $port.containerPort) $port.name }}
+          containerPort: {{ $port.containerPort }}
+          protocol: {{ default "TCP" $port.protocol }}
+        {{- end }}
+        {{- end }}
+        {{- if $workload.env }}
+        env:
+        {{- range $env := $workload.env }}
+        - name: {{ $env.name }}
+          {{- if hasKey $env "value" }}
+          value: {{ $env.value | quote }}
+          {{- else if $env.valueFromSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $env.valueFromSecret.name }}
+              key: {{ $env.valueFromSecret.key }}
+          {{- else if $env.valueFromConfigMap }}
+          valueFrom:
+            configMapKeyRef:
+              name: {{ $env.valueFromConfigMap.name }}
+              key: {{ $env.valueFromConfigMap.key }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- if $workload.envFrom }}
+        envFrom:
+{{ toYaml $workload.envFrom | nindent 10 }}
+        {{- end }}
+        {{- $resources := include "app.resolveResources" (list $ $workload) }}
+        {{- if $resources }}
+        resources:
+{{ $resources | nindent 10 }}
+        {{- end }}
+        {{- with $workload.probes }}
+          {{- with .readiness }}
+        readinessProbe:
+{{ toYaml . | nindent 10 }}
+          {{- end }}
+          {{- with .liveness }}
+        livenessProbe:
+{{ toYaml . | nindent 10 }}
+          {{- end }}
+        {{- end }}
+        {{- $hasMounts := or $workload.volumeMounts $workload.csi.enabled $dotenvEnabled $runtimeConfigEnabled }}
+        {{- if $hasMounts }}
+        volumeMounts:
+        {{- range $mount := $workload.volumeMounts }}
+        - name: {{ $mount.name }}
+          mountPath: {{ $mount.mountPath | quote }}
+          {{- if hasKey $mount "subPath" }}
+          subPath: {{ $mount.subPath | quote }}
+          {{- end }}
+          {{- if hasKey $mount "readOnly" }}
+          readOnly: {{ $mount.readOnly }}
+          {{- end }}
+        {{- end }}
+        {{- if $workload.csi.enabled }}
+        - name: {{ include "app.csiVolumeName" (list $ $workload) }}
+          mountPath: {{ $csiMountPath | quote }}
+          readOnly: {{ default true $workload.csi.readOnly }}
+        {{- end }}
+        {{- if $dotenvEnabled }}
+        - name: {{ include "app.dotenvVolumeName" (list $ $workload) }}
+          mountPath: {{ $dotenvMountPath | quote }}
+          subPath: .env
+          readOnly: true
+        {{- end }}
+        {{- if $runtimeConfigEnabled }}
+        {{- range $file := $runtimeFiles }}
+        {{- $mountPath := default $file.mountPath $file.mount_path -}}
+        {{- if and $file.key $mountPath }}
+        - name: {{ include "app.runtimeConfigVolumeName" (list $ $workload) }}
+          mountPath: {{ $mountPath | quote }}
+          subPath: {{ $file.key | quote }}
+          readOnly: true
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+      {{- $hasVolumes := or $workload.volumes $workload.csi.enabled $dotenvEnabled $runtimeConfigEnabled }}
+      {{- if $hasVolumes }}
+      volumes:
+      {{- range $volume := $workload.volumes }}
+      - name: {{ $volume.name }}
+        {{- if $volume.configMap }}
+        configMap:
+{{ toYaml $volume.configMap | nindent 10 }}
+        {{- end }}
+        {{- if $volume.secret }}
+        secret:
+{{ toYaml $volume.secret | nindent 10 }}
+        {{- end }}
+        {{- if $volume.emptyDir }}
+        emptyDir:
+{{ toYaml $volume.emptyDir | nindent 10 }}
+        {{- end }}
+        {{- if $volume.persistentVolumeClaim }}
+        persistentVolumeClaim:
+{{ toYaml $volume.persistentVolumeClaim | nindent 10 }}
+        {{- end }}
+        {{- if $volume.hostPath }}
+        hostPath:
+{{ toYaml $volume.hostPath | nindent 10 }}
+        {{- end }}
+      {{- end }}
+      {{- if $workload.csi.enabled }}
+      - name: {{ include "app.csiVolumeName" (list $ $workload) }}
+        csi:
+          driver: {{ default "secrets-store.csi.k8s.io" $workload.csi.driver | quote }}
+          readOnly: {{ default true $workload.csi.readOnly }}
+          volumeAttributes:
+            {{- if $workload.csi.secretProviderClass }}
+            secretProviderClass: {{ $workload.csi.secretProviderClass | quote }}
+            {{- end }}
+            {{- range $k, $v := $workload.csi.volumeAttributes }}
+            {{- if ne $k "secretProviderClass" }}
+            {{ $k | quote }}: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+      {{- end }}
+      {{- if $dotenvEnabled }}
+      - name: {{ include "app.dotenvVolumeName" (list $ $workload) }}
+        emptyDir: {}
+      {{- end }}
+      {{- if $runtimeConfigEnabled }}
+      - name: {{ include "app.runtimeConfigVolumeName" (list $ $workload) }}
+        configMap:
+          name: {{ include "app.runtimeConfigMapName" (list $ $workload) }}
+      {{- end }}
+      {{- end }}
+{{ end }}
+{{ end }}
+
