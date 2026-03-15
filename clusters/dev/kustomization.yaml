@@ -1,18 +1,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-- project.yaml
-- traefik-helmchartconfig.yaml
-- applications/platform/cert-manager.yaml
-- applications/platform/cert-manager-issuers.yaml
-- applications/platform/k3s-kubelet-prep.yaml
-- applications/platform/secrets-store-csi.yaml
-- applications/platform/infisical-csi-provider.yaml
-- applications/platform/infisical-secrets-operator.yaml
-- applications/platform/infisical-secretproviderclass.yaml
-- applications/platform/promtail.yaml
-- applications/apps/example.yaml
+  - project.yaml
+  - traefik-helmchartconfig.yaml
+  - applications/platform/cert-manager.yaml
+  - applications/platform/cert-manager-issuers.yaml
+  - applications/platform/k3s-kubelet-prep.yaml
+  - applications/platform/secrets-store-csi.yaml
+  - applications/platform/infisical-csi-provider.yaml
+  - applications/platform/infisical-secrets-operator.yaml
+  - applications/platform/infisical-secretproviderclass.yaml
+  - applications/platform/promtail.yaml
 labels:
-- pairs:
-    env: dev
-  includeSelectors: true
+  - pairs:
+      env: dev
+    includeSelectors: true
