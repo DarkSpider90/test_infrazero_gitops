@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/your-org/your-repo
+    repoURL: https://github.com/DarkSpider90/test_infrazero_gitops
     targetRevision: main
     path: clusters/dev
     kustomize:
@@ -19,6 +19,4 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-    - CreateNamespace=true
-
-
+      - CreateNamespace=true
