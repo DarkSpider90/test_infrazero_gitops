@@ -8,17 +8,19 @@ metadata:
 spec:
   description: Cluster resources for test
   sourceRepos:
-  - https://github.com/your-org/your-repo
-  - https://charts.jetstack.io
-  - https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
-  - https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts
-  - https://grafana.github.io/helm-charts
+    - https://github.com/your-org/your-repo
+    - https://charts.jetstack.io
+    - https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+    - https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts
+    - https://grafana.github.io/helm-charts
+    - https://github.com/DarkSpider90/test_infrazero_gitops
+    - https://kubernetes.github.io/ingress-nginx
   destinations:
-  - namespace: "*"
-    server: https://kubernetes.default.svc
+    - namespace: "*"
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
-  - group: "*"
-    kind: "*"
+    - group: "*"
+      kind: "*"
   namespaceResourceWhitelist:
-  - group: "*"
-    kind: "*"
+    - group: "*"
+      kind: "*"
