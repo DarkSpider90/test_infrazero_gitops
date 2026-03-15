@@ -1,4 +1,4 @@
-﻿apiVersion: argoproj.io/v1alpha1
+apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: cert-manager-issuers
@@ -6,7 +6,7 @@ metadata:
 spec:
   project: cluster-prod
   source:
-    repoURL: https://github.com/your-org/your-repo
+    repoURL: https://github.com/DarkSpider90/test_infrazero_gitops
     targetRevision: main
     path: platform/cert-manager
     directory:
@@ -19,6 +19,5 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-    - CreateNamespace=true
-    - SkipDryRunOnMissingResource=true
-
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
