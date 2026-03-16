@@ -35,7 +35,7 @@ data:
     API_RETRIES="${API_RETRIES:-5}"
     API_RETRY_DELAY="${API_RETRY_DELAY:-2}"
     ALLOWED_AUDIENCE="${INFISICAL_ALLOWED_AUDIENCE:-infisical}"
-    KUBE_HOST="https://kubernetes.torrf.site:6443"
+    KUBE_HOST="https://kubernetes.default.svc"
     
     get_secret_data_key() {
       local secret="$1"
